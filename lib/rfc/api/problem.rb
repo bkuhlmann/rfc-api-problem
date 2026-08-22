@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "rfc/api/problem/xml/deserializer"
 require "rfc/api/problem/xml/serializer"
 
 module RFC
