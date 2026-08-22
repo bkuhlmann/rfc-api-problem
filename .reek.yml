@@ -3,5 +3,8 @@ exclude_paths:
   - vendor
 
 detectors:
+  ControlParameter:
+    exclude:
+      - RFC::API::Problem::Payload#initialize
   LongParameterList:
     enabled: false
