@@ -2,11 +2,19 @@
 :toclevels: 5
 :figure-caption!:
 
+:data_link: link:https://alchemists.io/articles/ruby_data[Data]
+:rfc_9457_link: link:https://www.rfc-editor.org/rfc/rfc9457[RFC 9457]
+
 = RFC API Problem
+
+RFC API Problem implements {rfc_9457_link}: Problem Details for HTTP APIs. This allows you to produce HTTP error responses that are structured, machine readable, and consistent.
 
 toc::[]
 
 == Features
+
+* Provides JSON and XML serialization and deserialization.
+* Provides HTTP header and media type support.
 
 == Requirements
 
@@ -46,6 +54,359 @@ require "rfc/api/problem"
 
 == Usage
 
+The quickest way to get started is to create a new instance and then cast as JSON or XML:
+
+[source,ruby]
+----
+payload = RFC::API::Problem[
+  type: "https://demo.io/problem_details/timeout",
+  status: 413,
+  detail: "You've exceeded the 5MB upload limit.",
+  instance: "/profile/3a1bfd54-ae6c-4a61-8d0d-90c132428dc3"
+]
+
+payload.to_json
+
+# {
+#   "type" => "https://demo.io/problem_details/timeout",
+#   "title" => "Content Too Large",
+#   "status" => 413,
+#   "detail" => "You've exceeded the 5MB upload limit.",
+#   "instance" => "/profile/3a1bfd54-ae6c-4a61-8d0d-90c132428dc3"
+# }
+
+payload.to_xml
+
+# <?xml version='1.0' encoding='UTF-8'?>
+# <problem xmlns='urn:ietf:rfc:7807'>
+#   <type>https://demo.io/problem_details/timeout</type>
+#   <title>Content Too Large</title>
+#   <status>413</status>
+#   <detail>You&apos;ve exceeded the 5MB upload limit.</detail>
+#   <instance>/profile/3a1bfd54-ae6c-4a61-8d0d-90c132428dc3</instance>
+# </problem>
+----
+
+💡 You can also use `RFC::API::Problem.new` to create instances if you don't like `RFC::API::Problem.[]`, as shown above, but `.[]` is preferred.
+
+=== Members
+
+As briefly shown above, the minimum members (attributes) that make up problem details are:
+
+* `type` (optional): The full (or relative) URI that links to additional documentation. Default: `"about:blank"`.
+* `status` (optional): The link:https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status[HTTP status code] (or symbol) that must match your HTTP status code. Default: `nil`.
+* `title` (optional): The HTTP status label that must match your HTTP status code label. Default: HTTP status label (dynamically computed based on code unless overwritten).
+* `detail` (optional): The human readable reason for the error (should not include debugging information). Default: `nil`.
+* `instance` (optional): The full (or relative) URI that represents the cause of the error. Default: `nil`.
+* `extensions` (optional): A free form hash of additional details. Default: `{}`.
+
+=== Media Types
+
+For convenience, you can obtain the necessary media types for your HTTP headers as follows:
+
+[source,ruby]
+----
+RFC::API::Problem::MEDIA_TYPE_JSON  # "application/problem+json"
+RFC::API::Problem::MEDIA_TYPE_XML   # "application/problem+xml"
+
+RFC::API::Problem.media_type_for :json  # "application/problem+json"
+RFC::API::Problem.media_type_for :xml   # "application/problem+xml"
+----
+
+=== Payload
+
+You'll always get a `RFC::API::Problem::Payload` object answered back when using `RFC::API::Problem.[]` or `RFC::API::Problem.new` for which you can cast to JSON, XML, and other types. There are few conveniences provided for you when constructing a new payload. For instance, you can also use status to set default title:
+
+[source,ruby]
+----
+RFC::API::Problem[status: 413]
+
+# #<data RFC::API::Problem::Payload:0x00002950
+#   detail = nil,
+#   extensions = {},
+#   instance = nil,
+#   status = 413,
+#   title = "Content Too Large",
+#   type = "about:blank"
+# >
+----
+
+Notice that standard HTTP 413 title of "Content Too Large" is provided for you but only if you don't supply a title. This works for symbols too. Example:
+
+[source,ruby]
+----
+RFC::API::Problem[status: :bad_request]
+
+# #<data RFC::API::Problem::Payload:0x00002970
+#   detail = nil,
+#   extensions = {},
+#   instance = nil,
+#   status = 400,
+#   title = "Bad Request",
+#   type = "about:blank"
+# >
+----
+
+This is similar to the above, but notice the status is cast to an integer while the title is also populated for you. Using either an integer or symbol for the HTTP status is handy for situations where you don't need a custom title and prefer the default HTTP title.
+
+Due to the payload being a {data_link} object, you have all of the standard methods available to you which are frozen by default. That said, you can still add or check for extensions after the fact. Example:
+
+[source,]
+----
+payload = RFC::API::Problem[status: :forbidden]
+
+payload.add_extension(:account, "/accounts/1")
+       .add_extension(:balance, 50)
+
+# #<data RFC::API::Problem::Payload:0x000029a0
+#   detail = nil,
+#   extensions = {
+#     account: "/accounts/1",
+#     balance: 50
+#   },
+#   instance = nil,
+#   status = 403,
+#   title = "Forbidden",
+#   type = "about:blank"
+# >
+----
+
+Given the above, you can also check if an extension exists:
+
+[source,ruby]
+----
+payload.extension? :account  # true
+payload.extension? :bogus    # false
+----
+
+=== JSON
+
+Both serialization and deserialization of JSON is supported. For example, given the following payload:
+
+[source,ruby]
+----
+payload = RFC::API::Problem[
+  type: "https://demo.io/problem_details/out_of_credit",
+  title: "You do not have enough credit.",
+  status: 403,
+  detail: "Your current balance is 30, but that costs 50.",
+  instance: "/accounts/1",
+  extensions: {
+    balance: 30,
+    accounts: %w[/accounts/1 /accounts/10]
+  }
+]
+----
+
+This means you can serialize as follows:
+
+[source,ruby]
+----
+payload.to_json
+
+# "{\"type\":\"https://demo.io/problem_details/out_of_credit\",\"title\":\"You do not have enough credit.\",\"status\":403,\"detail\":\"Your current balance is 30, but that costs 50.\",\"instance\":\"/accounts/1\",\"balance\":30,\"accounts\":[\"/accounts/1\",\"/accounts/10\"]}"
+
+payload.to_json indent: "  ", space: " ", object_nl: "\n", array_nl: "\n"
+
+# {
+#   "type": "https://demo.io/problem_details/out_of_credit",
+#   "title": "You do not have enough credit.",
+#   "status": 403,
+#   "detail": "Your current balance is 30, but that costs 50.",
+#   "instance": "/accounts/1",
+#   "balance": 30,
+#   "accounts": [
+#     "/accounts/1",
+#     "/accounts/10"
+#   ]
+# }
+----
+
+💡 All of the link:https://docs.ruby-lang.org/en/master/JSON.html#module-JSON-label-Output+Options[JSON] output options are available to you when casting to JSON.
+
+You can also deserialize by taking the result of the above and turning the raw JSON back into a `RFC::API::Problem::Payload`:
+
+[source,ruby]
+----
+RFC::API::Problem.from_json "{\"type\":\"https://demo.io/problem_details/out_of_credit\",\"title\":\"You do not have enough credit.\",\"status\":403,\"detail\":\"Your current balance is 30, but that costs 50.\",\"instance\":\"/accounts/1\",\"balance\":30,\"accounts\":[\"/accounts/1\",\"/accounts/10\"]}"
+
+# #<data RFC::API::Problem::Payload:0x00002d10
+#   detail = "Your current balance is 30, but that costs 50.",
+#   extensions = {
+#      balance: 30,
+#     accounts: [
+#       "/accounts/1",
+#       "/accounts/10"
+#     ]
+#   },
+#   instance = "/accounts/1",
+#   status = 403,
+#   title = "You do not have enough credit.",
+#   type = "https://demo.io/problem_details/out_of_credit"
+# >
+----
+
+=== XML
+
+XML is supported too but isn't as robust as JSON support, at the moment. This is mostly due to the fact that extensions can be deeply nested so your mileage may vary. For example, given the following payload:
+
+[source,ruby]
+----
+payload = RFC::API::Problem[
+  type: "https://demo.io/problem_details/out_of_credit",
+  title: "You do not have enough credit.",
+  status: 403,
+  detail: "Your current balance is 30, but that costs 50.",
+  instance: "/accounts/1",
+  extensions: {
+    balance: 30,
+    accounts: %w[/accounts/1 /accounts/10]
+  }
+]
+----
+
+This means you can serialize as follows:
+
+[source,ruby]
+----
+payload.to_xml
+# "<?xml version='1.0' encoding='UTF-8'?><problem xmlns='urn:ietf:rfc:7807'><type>https://demo.io/problem_details/out_of_credit</type><title>You do not have enough credit.</title><status>403</status><detail>Your current balance is 30, but that costs 50.</detail><instance>/accounts/1</instance><balance>30</balance><accounts><i>/accounts/1</i><i>/accounts/10</i></accounts></problem>"
+
+payload.to_xml indent: 2
+# <?xml version='1.0' encoding='UTF-8'?>
+# <problem xmlns='urn:ietf:rfc:7807'>
+#   <type>
+#     https://demo.io/problem_details/out_of_credit
+#   </type>
+#   <title>
+#     You do not have enough credit.
+#   </title>
+#   <status>
+#     403
+#   </status>
+#   <detail>
+#     Your current balance is 30, but that costs 50.
+#   </detail>
+#   <instance>
+#     /accounts/1
+#   </instance>
+#   <balance>
+#     30
+#   </balance>
+#   <accounts>
+#     <i>
+#       /accounts/1
+#     </i>
+#     <i>
+#       /accounts/10
+#     </i>
+#   </accounts>
+# </problem>
+----
+
+💡 All of the link:https://ruby.github.io/rexml/REXML/Document.html#method-i-write[REXML::Document.write] output options are available to you when casting to XML.
+
+You can also deserialize by taking the result of the above and turning the raw JSON back into a `RFC::API::Problem::Payload`:
+
+[source,ruby]
+----
+payload = RFC::API::Problem.from_xml <<~XML
+  <?xml version='1.0' encoding='UTF-8'?>
+  <problem xmlns='urn:ietf:rfc:7807'>
+    <type>https://demo.io/problem_details/out_of_credit</type>
+    <title>You do not have enough credit.</title>
+    <status>403</status>
+    <detail>Your current balance is 30, but that costs 50.</detail>
+    <instance>/accounts/1</instance>
+    <balance>30</balance>
+    <accounts>
+      <i>/accounts/1</i>
+      <i>/accounts/10</i>
+    </accounts>
+  </problem>
+XML
+
+# #<data RFC::API::Problem::Payload:0x00000940
+#   detail = "Your current balance is 30, but that costs 50.",
+#   extensions = {
+#      balance: "30",
+#     accounts: [
+#       "/accounts/1",
+#       "/accounts/10"
+#     ]
+#   },
+#   instance = "/accounts/1",
+#   status = 403,
+#   title = "You do not have enough credit.",
+#   type = "https://demo.io/problem_details/out_of_credit"
+# >
+----
+
+=== Examples
+
+There is a lot of useful information you can provide in your problem details depending on the context you are working in. Some have been shown above but here's a few more that might be of interest.
+
+==== HATEOAS
+
+With link:https://nordicapis.com/tools-to-make-hateoas-compliance-easier[HATEOAS], you can provide additional information and links for which the client can understand what next actions are available. The below example shows how you can provide additional resources for clients to adjust accordingly:
+
+[source,ruby]
+----
+RFC::API::Problem[
+  type: "https://demo.io/problem_details/rate_limit",
+  title: "Rate limit exceeded",
+  status: 429,
+  detail: "You have exceeded your rate limit of 150 requests per minute",
+  instance: "/articles",
+  extensions: {
+    retry_after: 5,
+    links: [
+      {
+        ref: "self",
+        href: "/articles"
+      },
+      {
+        rel: "retry",
+        href: "/articles",
+        title: "Retry after five minutes"
+      },
+      {
+        rel: "status",
+        href: "/statuses/rate_limit",
+        title: "Check current rate limit usage"
+      }
+    ]
+  }
+]
+----
+
+==== Semantic Structure
+
+In other situations, you might need a different structure in order to aid clients that might be AI driven which needs a semantically structured response in order to course correct. Example:
+
+[source,ruby]
+----
+RFC::API::Problem[
+  type: "https://demo.io/problem_details/invalid_field",
+  title: "Invalid field value",
+  status: 400,
+  detail: "The category requested doesn't exist",
+  instance: "/categories",
+  extensions: {
+    parameters: {
+      category_id: 123
+    },
+    suggestions: [
+      "ruby",
+      "git",
+      "htmx"
+    ]
+  }
+]
+----
+
+With the above, the client now knows what parameters where invalid along with relevant suggestions for proceeding. Even better, the suggestions implicitly show the types of IDs that are required.
+
 == Development
 
 To contribute, run:
@@ -72,6 +433,13 @@ To test, run:
 ----
 bin/rake
 ----
+
+== Resources
+
+You can find additional resources here:
+
+* link:https://www.iana.org/assignments/http-problem-types/http-problem-types.xhtml[IANA Hypertext Transfer Protocol (HTTP) Problem Types]: A registered list of problem types you can use.
+* link:https://github.com/protocol-registries/http-problem-types[HTTP Problem Type Registration Requests]: Where you can register new problem types.
 
 == link:https://alchemists.io/policies/license[License]
 
