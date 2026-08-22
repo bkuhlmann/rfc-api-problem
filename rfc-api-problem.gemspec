@@ -25,6 +25,7 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 4.0"
 
   spec.add_dependency "rack", "~> 3.0"
+  spec.add_dependency "rexml", "~> 3.4"
 
   spec.extra_rdoc_files = Dir["README*", "LICENSE*"]
   spec.files = Dir["*.gemspec", "lib/**/*"]
