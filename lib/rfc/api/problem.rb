@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
-module Rfc
-  module Api
+require "rfc/api/problem/xml/serializer"
+
+module RFC
+  module API
     # Main namespace.
     module Problem
     end
