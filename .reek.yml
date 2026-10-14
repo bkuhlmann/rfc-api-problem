@@ -8,3 +8,5 @@ detectors:
       - RFC::API::Problem::Payload#initialize
   LongParameterList:
     enabled: false
+  UnusedParameters:
+    enabled: false
